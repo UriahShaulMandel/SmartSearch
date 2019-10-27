@@ -1,15 +1,23 @@
 import operator
 from typing import Dict
-
+import pandas as pd
 import jellyfish
 
 
 class WordMatcher:
-    def __init__(self, options_list):
-        self.synonyms_dict = {
-            x[1][0].lower(): [y for y in (str(x[1][1]).split(',') if isinstance(x[1][1], str) else [])] for x in
-        options_list.iterrows()}
+    def __init__(self, options_list: pd.DataFrame):
+        column_list = list(options_list.columns)
+        word_index = column_list.index("display title")
+        syns_index = column_list.index("English Synonyms")
+        uid_index = column_list.index("uid")
 
+        self.synonyms_dict = {
+            x[1][word_index].lower():
+                [y for y in
+                 (str(x[1][syns_index]).split(',') if isinstance(x[1][syns_index], str) else [])]
+            for x in options_list.iterrows()}
+        self.uid_dict = {
+            x[1][word_index].lower(): x[1][uid_index] for x in options_list.iterrows()}
         self.options_list = set(self.synonyms_dict)
 
     def get_possibilities(self, search_str: str) -> list:
@@ -23,7 +31,7 @@ class WordMatcher:
         ret_dict = {option: 0 for option in self.options_list}
         ret_dict = self.scores_pipeline(ret_dict, search_str)
         return sorted(
-            ret_dict.items(),
+            [(x[0], x[1], self.uid_dict[x[0]]) for x in ret_dict.items()],
             key=operator.itemgetter(1),
             reverse=True
         )
@@ -35,7 +43,7 @@ class WordMatcher:
         :param search_str: the string used to search
         :return: the dictionary after applying all of the FUNCTIONS
         """
-        OPTION_COMPARED_TO_SYNONYMS_CONST = 4
+        OPTION_COMPARED_TO_SYNONYMS_CONST = 2
 
         FUNCTIONS = (
             # The functions of the pipeline, together with their score multiplier. higher means more important
@@ -51,7 +59,7 @@ class WordMatcher:
             ret_dict = {k:
                             v +
                             (f[0](k, search_str) * f[1]) * OPTION_COMPARED_TO_SYNONYMS_CONST +
-                            sum([(f[0](kk, search_str) * f[1]) for kk in self.get_synonyms_for_option(k)])
+                            max([0] + [(f[0](kk, search_str) * f[1]) for kk in self.get_synonyms_for_option(k)])
 
                         for k, v in ret_dict.items()}
         return ret_dict
